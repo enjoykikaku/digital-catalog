@@ -9,7 +9,7 @@
   <script src="./turn.min.js"></script>
   <style>
     body { margin: 0; background: #222; overflow: hidden; height: 100vh; width: 100vw; }
-    /* 本を画面の真ん中に強制固定する魔法のCSS */
+    /* 画面のど真ん中に配置するための設定 */
     #canvas_container {
       width: 100%;
       height: 100%;
@@ -19,9 +19,10 @@
     }
     #flipbook {
       visibility: hidden; /* 準備ができるまで隠す */
+      margin: 0 auto;
     }
     .page { background: #fff; }
-    canvas { display: block; width: 100%; height: 100%; }
+    canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
   </style>
 </head>
 <body>
@@ -33,20 +34,21 @@
     const url = './catalog.pdf';
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
 
+    // PCかスマホか判定
     function isWide() { return window.innerWidth > 900; }
 
     async function buildFlipbook() {
       const flipbook = $('#flipbook');
       if (flipbook.data('turn')) { flipbook.turn('destroy'); }
-      flipbook.empty().css('visibility', 'hidden');
+      flipbook.empty().css({'visibility': 'hidden', 'margin': '0'});
 
       const pdf = await pdfjsLib.getDocument(url).promise;
       let firstW = 0, firstH = 0;
 
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
-        // スマホなら1.0、PCなら1.5くらいがちょうどいいわ
-        const viewport = page.getViewport({ scale: isWide() ? 1.5 : 1.0 });
+        // 解像度を上げて綺麗に見せる
+        const viewport = page.getViewport({ scale: 1.5 });
         const pageDiv = $('<div class="page"></div>');
         const canvas = document.createElement('canvas');
         
@@ -63,28 +65,37 @@
         }
       }
 
-      // 画面サイズに合わせて本のサイズを決定
-      const bookW = isWide() ? firstW * 2 : firstW;
-      const bookH = firstH;
+      // 画面の高さに合わせる計算（はみ出し防止）
+      const scale = Math.min((window.innerWidth * 0.9) / (isWide() ? firstW * 2 : firstW), (window.innerHeight * 0.8) / firstH);
+      const bookW = (isWide() ? firstW * 2 : firstW) * scale;
+      const bookH = firstH * scale;
 
       flipbook.width(bookW).height(bookH).css('visibility', 'visible').turn({
         width: bookW,
         height: bookH,
-        autoCenter: true,
+        autoCenter: true, // これを確実に効かせる
         display: isWide() ? 'double' : 'single',
         acceleration: true,
-        elevation: 50
+        elevation: 50,
+        when: {
+          turned: function(e, page) {
+            // 最初のページ（表紙）の時に中央に来るよう微調整
+            if (isWide() && page == 1) {
+              $(this).css('margin-left', (bookW / 4) + 'px');
+            } else {
+              $(this).css('margin-left', '0');
+            }
+          }
+        }
       });
     }
 
-    // 読み込み完了時に実行
     $(window).on('load', buildFlipbook);
 
-    // 画面の向きを変えた時の自動調整
     let timer;
     $(window).on('resize', () => {
       clearTimeout(timer);
-      timer = setTimeout(buildFlipbook, 500);
+      timer = setTimeout(buildFlipbook, 300);
     });
   </script>
 </body>
