@@ -3,58 +3,62 @@
 <head>
     <meta charset="utf-8">
     <title>エンジョイホーム デジタルカタログ</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
     <script src="https://cdn.rawgit.com/blasten/turn.js/master/turn.min.js"></script>
     <style>
-        body { background-color: #333; margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        #flipbook { width: 90vw; height: 90vh; }
-        .page { background-color: white; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
-        canvas { width: 100%; height: 100%; }
+        body { background-color: #222; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; touch-action: none; }
+        #flipbook { width: 90vw; height: 80vh; visibility: hidden; } /* 読み込み完了まで隠す */
+        .page { background-color: white; box-shadow: 0 0 15px rgba(0,0,0,0.3); }
+        canvas { width: 100%; height: 100%; display: block; }
     </style>
 </head>
 <body>
 
-<div id="flipbook">
-    </div>
+<div id="flipbook"></div>
 
 <script>
-    const url = 'catalog.pdf'; // 行平が上げたファイル名
-    let pdfDoc = null;
+    const url = 'catalog.pdf';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
 
-    // PDF.jsを使ってPDFを解析
-    pdfjsLib.getDocument(url).promise.then(doc => {
-        pdfDoc = doc;
+    async function loadPDF() {
+        const loadingTask = pdfjsLib.getDocument(url);
+        const pdf = await loadingTask.promise;
         const flipbook = $('#flipbook');
 
-        // 各ページをキャンバスとして作成
-        for (let i = 1; i <= doc.numPages; i++) {
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const viewport = page.getViewport({ scale: 2 });
             const pageDiv = $('<div class="page"></div>');
             const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            await page.render({ canvasContext: context, viewport: viewport }).promise;
+            
             pageDiv.append(canvas);
             flipbook.append(pageDiv);
-
-            doc.getPage(i).then(page => {
-                const viewport = page.getViewport({ scale: 1.5 });
-                const context = canvas.getContext('2d');
-                canvas.height = viewport.height;
-                canvas.width = viewport.width;
-
-                page.render({ canvasContext: context, viewport: viewport });
-            });
         }
 
-        // 全ページ準備できたらTurn.jsを起動
-        setTimeout(() => {
-            flipbook.turn({
-                width: 800,
-                height: 600,
-                autoCenter: true,
-                display: 'double', // 見開き表示
-                acceleration: true
-            });
-        }, 1000);
+        // 全ページ描画が終わってから起動
+        flipbook.css('visibility', 'visible').turn({
+            width: flipbook.width(),
+            height: flipbook.height(),
+            autoCenter: true,
+            display: (window.innerWidth > 1000) ? 'double' : 'single', // PCなら見開き、スマホなら1ページ
+            acceleration: true,
+            gradients: true,
+            elevation: 50
+        });
+    }
+
+    loadPDF().catch(err => console.error("PDF読み込みエラー:", err));
+
+    // 画面サイズが変わった時に調整
+    $(window).resize(function() {
+        $('#flipbook').turn('size', $('#flipbook').width(), $('#flipbook').height());
     });
 </script>
 </body>
