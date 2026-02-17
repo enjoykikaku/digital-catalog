@@ -3,72 +3,89 @@
 <head>
   <meta charset="utf-8" />
   <title>エンジョイホーム デジタルカタログ</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
   <script src="./turn.min.js"></script>
   <style>
-    body { margin: 0; background: #333; display: grid; place-items: center; min-height: 100vh; overflow: hidden; }
-    #flipbook { background: #111; box-shadow: 0 10px 30px rgba(0,0,0,.4); visibility: hidden; } /* 準備中まで隠す */
+    body { margin: 0; background: #222; overflow: hidden; height: 100vh; width: 100vw; }
+    /* 本を画面の真ん中に強制固定する魔法のCSS */
+    #canvas_container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    #flipbook {
+      visibility: hidden; /* 準備ができるまで隠す */
+    }
     .page { background: #fff; }
-    canvas { display: block; width: 100%; height: auto; }
+    canvas { display: block; width: 100%; height: 100%; }
   </style>
 </head>
 <body>
-  <div id="flipbook"></div>
+  <div id="canvas_container">
+    <div id="flipbook"></div>
+  </div>
 
   <script>
     const url = './catalog.pdf';
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
 
-    function isWide() { return window.matchMedia('(min-width: 900px)').matches; }
+    function isWide() { return window.innerWidth > 900; }
 
     async function buildFlipbook() {
       const flipbook = $('#flipbook');
-      flipbook.empty();
-      const pdf = await pdfjsLib.getDocument(url).promise;
+      if (flipbook.data('turn')) { flipbook.turn('destroy'); }
+      flipbook.empty().css('visibility', 'hidden');
 
+      const pdf = await pdfjsLib.getDocument(url).promise;
       let firstW = 0, firstH = 0;
 
-      // ページ生成
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
-        const scale = isWide() ? 2.0 : 1.5;
-        const viewport = page.getViewport({ scale });
+        // スマホなら1.0、PCなら1.5くらいがちょうどいいわ
+        const viewport = page.getViewport({ scale: isWide() ? 1.5 : 1.0 });
         const pageDiv = $('<div class="page"></div>');
         const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-
+        
         canvas.width = viewport.width;
         canvas.height = viewport.height;
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
 
         pageDiv.append(canvas);
         flipbook.append(pageDiv);
 
         if (i === 1) {
-          firstW = isWide() ? viewport.width * 2 : viewport.width;
+          firstW = viewport.width;
           firstH = viewport.height;
         }
       }
 
-      // サイズ設定と表示
-      flipbook.width(firstW).height(firstH).css('visibility', 'visible');
+      // 画面サイズに合わせて本のサイズを決定
+      const bookW = isWide() ? firstW * 2 : firstW;
+      const bookH = firstH;
 
-      // 確実にDOMに反映されるのを待ってから初期化
-      setTimeout(() => {
-        flipbook.turn({
-          width: firstW,
-          height: firstH,
-          autoCenter: true,
-          display: isWide() ? 'double' : 'single',
-          acceleration: true,
-          elevation: 50,
-        });
-      }, 500);
+      flipbook.width(bookW).height(bookH).css('visibility', 'visible').turn({
+        width: bookW,
+        height: bookH,
+        autoCenter: true,
+        display: isWide() ? 'double' : 'single',
+        acceleration: true,
+        elevation: 50
+      });
     }
 
-    buildFlipbook();
+    // 読み込み完了時に実行
+    $(window).on('load', buildFlipbook);
+
+    // 画面の向きを変えた時の自動調整
+    let timer;
+    $(window).on('resize', () => {
+      clearTimeout(timer);
+      timer = setTimeout(buildFlipbook, 500);
+    });
   </script>
 </body>
 </html>
