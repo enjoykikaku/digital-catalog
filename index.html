@@ -4,37 +4,14 @@
   <meta charset="utf-8" />
   <title>エンジョイホーム デジタルカタログ</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <!-- jQuery -->
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-
-  <!-- PDF.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
-
-  <!-- turn.js（ローカルに置くのが安定） -->
   <script src="./turn.min.js"></script>
-
   <style>
-    body {
-      margin: 0;
-      background: #333;
-      display: grid;
-      place-items: center;
-      min-height: 100vh;
-      overflow: hidden;
-    }
-    #flipbook {
-      background: #111;
-      box-shadow: 0 10px 30px rgba(0,0,0,.4);
-    }
-    .page {
-      background: #fff;
-    }
-    canvas {
-      display: block;
-      width: 100%;
-      height: auto; /* 歪み防止 */
-    }
+    body { margin: 0; background: #333; display: grid; place-items: center; min-height: 100vh; overflow: hidden; }
+    #flipbook { background: #111; box-shadow: 0 10px 30px rgba(0,0,0,.4); visibility: hidden; } /* 準備中まで隠す */
+    .page { background: #fff; }
+    canvas { display: block; width: 100%; height: auto; }
   </style>
 </head>
 <body>
@@ -42,68 +19,54 @@
 
   <script>
     const url = './catalog.pdf';
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
 
-    function isWide() {
-      return window.matchMedia('(min-width: 900px)').matches;
-    }
+    function isWide() { return window.matchMedia('(min-width: 900px)').matches; }
 
     async function buildFlipbook() {
       const flipbook = $('#flipbook');
       flipbook.empty();
-
       const pdf = await pdfjsLib.getDocument(url).promise;
 
       let firstW = 0, firstH = 0;
 
+      // ページ生成
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
-
-        // 端末で解像度変える（スマホは軽く、PCは綺麗）
         const scale = isWide() ? 2.0 : 1.5;
         const viewport = page.getViewport({ scale });
-
         const pageDiv = $('<div class="page"></div>');
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
 
         canvas.width = viewport.width;
         canvas.height = viewport.height;
-
         await page.render({ canvasContext: ctx, viewport }).promise;
 
         pageDiv.append(canvas);
         flipbook.append(pageDiv);
 
         if (i === 1) {
-          firstW = viewport.width;
+          firstW = isWide() ? viewport.width * 2 : viewport.width;
           firstH = viewport.height;
         }
       }
 
-      // flipbookサイズ決め（1ページ分）
-      flipbook.width(firstW).height(firstH);
+      // サイズ設定と表示
+      flipbook.width(firstW).height(firstH).css('visibility', 'visible');
 
-      // turn初期化
-      flipbook.turn({
-        autoCenter: true,
-        display: isWide() ? 'double' : 'single',
-        acceleration: true,
-        elevation: 50,
-      });
+      // 確実にDOMに反映されるのを待ってから初期化
+      setTimeout(() => {
+        flipbook.turn({
+          width: firstW,
+          height: firstH,
+          autoCenter: true,
+          display: isWide() ? 'double' : 'single',
+          acceleration: true,
+          elevation: 50,
+        });
+      }, 500);
     }
-
-    // リサイズで single/double 切り替え
-    let resizeTimer;
-    window.addEventListener('resize', () => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        const flipbook = $('#flipbook');
-        if (flipbook.data('turn')) flipbook.turn('destroy');
-        buildFlipbook();
-      }, 300);
-    });
 
     buildFlipbook();
   </script>
