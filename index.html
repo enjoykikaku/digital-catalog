@@ -1,65 +1,111 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="ja">
 <head>
-    <meta charset="utf-8">
-    <title>エンジョイホーム デジタルカタログ</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
-    <script src="https://cdn.rawgit.com/blasten/turn.js/master/turn.min.js"></script>
-    <style>
-        body { background-color: #222; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; touch-action: none; }
-        #flipbook { width: 90vw; height: 80vh; visibility: hidden; } /* 読み込み完了まで隠す */
-        .page { background-color: white; box-shadow: 0 0 15px rgba(0,0,0,0.3); }
-        canvas { width: 100%; height: 100%; display: block; }
-    </style>
+  <meta charset="utf-8" />
+  <title>エンジョイホーム デジタルカタログ</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- jQuery -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+  <!-- PDF.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
+
+  <!-- turn.js（ローカルに置くのが安定） -->
+  <script src="./turn.min.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      background: #333;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+    #flipbook {
+      background: #111;
+      box-shadow: 0 10px 30px rgba(0,0,0,.4);
+    }
+    .page {
+      background: #fff;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto; /* 歪み防止 */
+    }
+  </style>
 </head>
 <body>
+  <div id="flipbook"></div>
 
-<div id="flipbook"></div>
+  <script>
+    const url = './catalog.pdf';
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
 
-<script>
-    const url = 'catalog.pdf';
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
-
-    async function loadPDF() {
-        const loadingTask = pdfjsLib.getDocument(url);
-        const pdf = await loadingTask.promise;
-        const flipbook = $('#flipbook');
-
-        for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const viewport = page.getViewport({ scale: 2 });
-            const pageDiv = $('<div class="page"></div>');
-            const canvas = document.createElement('canvas');
-            const context = canvas.getContext('2d');
-            
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-            await page.render({ canvasContext: context, viewport: viewport }).promise;
-            
-            pageDiv.append(canvas);
-            flipbook.append(pageDiv);
-        }
-
-        // 全ページ描画が終わってから起動
-        flipbook.css('visibility', 'visible').turn({
-            width: flipbook.width(),
-            height: flipbook.height(),
-            autoCenter: true,
-            display: (window.innerWidth > 1000) ? 'double' : 'single', // PCなら見開き、スマホなら1ページ
-            acceleration: true,
-            gradients: true,
-            elevation: 50
-        });
+    function isWide() {
+      return window.matchMedia('(min-width: 900px)').matches;
     }
 
-    loadPDF().catch(err => console.error("PDF読み込みエラー:", err));
+    async function buildFlipbook() {
+      const flipbook = $('#flipbook');
+      flipbook.empty();
 
-    // 画面サイズが変わった時に調整
-    $(window).resize(function() {
-        $('#flipbook').turn('size', $('#flipbook').width(), $('#flipbook').height());
+      const pdf = await pdfjsLib.getDocument(url).promise;
+
+      let firstW = 0, firstH = 0;
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+
+        // 端末で解像度変える（スマホは軽く、PCは綺麗）
+        const scale = isWide() ? 2.0 : 1.5;
+        const viewport = page.getViewport({ scale });
+
+        const pageDiv = $('<div class="page"></div>');
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        pageDiv.append(canvas);
+        flipbook.append(pageDiv);
+
+        if (i === 1) {
+          firstW = viewport.width;
+          firstH = viewport.height;
+        }
+      }
+
+      // flipbookサイズ決め（1ページ分）
+      flipbook.width(firstW).height(firstH);
+
+      // turn初期化
+      flipbook.turn({
+        autoCenter: true,
+        display: isWide() ? 'double' : 'single',
+        acceleration: true,
+        elevation: 50,
+      });
+    }
+
+    // リサイズで single/double 切り替え
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        const flipbook = $('#flipbook');
+        if (flipbook.data('turn')) flipbook.turn('destroy');
+        buildFlipbook();
+      }, 300);
     });
-</script>
+
+    buildFlipbook();
+  </script>
 </body>
 </html>
