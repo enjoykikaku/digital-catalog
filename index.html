@@ -5,98 +5,91 @@
   <title>エンジョイホーム デジタルカタログ</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <script src="./turn.min.js"></script>
   <style>
-    body { margin: 0; background: #222; overflow: hidden; height: 100vh; width: 100vw; }
-    /* 画面のど真ん中に配置するための設定 */
-    #canvas_container {
-      width: 100%;
-      height: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
-    #flipbook {
-      visibility: hidden; /* 準備ができるまで隠す */
-      margin: 0 auto;
-    }
-    .page { background: #fff; }
-    canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
+    body { margin: 0; background: #222; overflow: hidden; height: 100vh; width: 100vw; display: flex; justify-content: center; align-items: center; }
+    #flipbook { visibility: hidden; margin: 0 auto; }
+    .page { background: #fff; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+    canvas { width: 100%; height: 100%; display: block; }
+    /* 読み込み中のインジケーター */
+    #loader { color: white; position: absolute; font-family: sans-serif; }
   </style>
 </head>
 <body>
-  <div id="canvas_container">
-    <div id="flipbook"></div>
-  </div>
+  <div id="loader">カタログを生成中...</div>
+  <div id="flipbook"></div>
 
   <script>
     const url = './catalog.pdf';
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
+    // Workerのパスを確実に通す
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
-    // PCかスマホか判定
     function isWide() { return window.innerWidth > 900; }
 
     async function buildFlipbook() {
-      const flipbook = $('#flipbook');
-      if (flipbook.data('turn')) { flipbook.turn('destroy'); }
-      flipbook.empty().css({'visibility': 'hidden', 'margin': '0'});
+      try {
+        const flipbook = $('#flipbook');
+        const pdf = await pdfjsLib.getDocument(url).promise;
+        let firstW = 0, firstH = 0;
 
-      const pdf = await pdfjsLib.getDocument(url).promise;
-      let firstW = 0, firstH = 0;
-
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        // 解像度を上げて綺麗に見せる
-        const viewport = page.getViewport({ scale: 1.5 });
-        const pageDiv = $('<div class="page"></div>');
-        const canvas = document.createElement('canvas');
-        
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-
-        pageDiv.append(canvas);
-        flipbook.append(pageDiv);
-
-        if (i === 1) {
-          firstW = viewport.width;
-          firstH = viewport.height;
-        }
-      }
-
-      // 画面の高さに合わせる計算（はみ出し防止）
-      const scale = Math.min((window.innerWidth * 0.9) / (isWide() ? firstW * 2 : firstW), (window.innerHeight * 0.8) / firstH);
-      const bookW = (isWide() ? firstW * 2 : firstW) * scale;
-      const bookH = firstH * scale;
-
-      flipbook.width(bookW).height(bookH).css('visibility', 'visible').turn({
-        width: bookW,
-        height: bookH,
-        autoCenter: true, // これを確実に効かせる
-        display: isWide() ? 'double' : 'single',
-        acceleration: true,
-        elevation: 50,
-        when: {
-          turned: function(e, page) {
-            // 最初のページ（表紙）の時に中央に来るよう微調整
-            if (isWide() && page == 1) {
-              $(this).css('margin-left', (bookW / 4) + 'px');
-            } else {
-              $(this).css('margin-left', '0');
-            }
+        // 描画負荷を抑えるため、先に枠組みだけ作る
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const pageDiv = $('<div class="page"></div>').attr('data-page', i);
+          flipbook.append(pageDiv);
+          
+          if (i === 1) {
+            const page = await pdf.getPage(1);
+            const viewport = page.getViewport({ scale: isWide() ? 1.2 : 1.0 });
+            firstW = viewport.width;
+            firstH = viewport.height;
           }
         }
-      });
+
+        const bookW = isWide() ? firstW * 2 : firstW;
+        const bookH = firstH;
+
+        $('#loader').hide();
+        flipbook.width(bookW).height(bookH).css('visibility', 'visible').turn({
+          width: bookW, height: bookH,
+          autoCenter: true,
+          display: isWide() ? 'double' : 'single',
+          acceleration: true,
+          elevation: 50,
+          gradients: !hapticCheck(), // 低スペック端末ではグラデーションを切る
+          when: {
+            turning: async function(e, page, view) {
+              // 必要なページだけその都度描画する（もっさり解消！）
+              view.forEach(async (p) => {
+                if (p === 0) return;
+                const container = $(`.page[data-page="${p}"]`);
+                if (container.find('canvas').length === 0) {
+                  const pdfPage = await pdf.getPage(p);
+                  const viewport = pdfPage.getViewport({ scale: 1.5 });
+                  const canvas = document.createElement('canvas');
+                  canvas.width = viewport.width;
+                  canvas.height = viewport.height;
+                  await pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                  container.append(canvas);
+                }
+              });
+            }
+          }
+        });
+        
+        // 初回のみ1ページ目を描画
+        $(`.page[data-page="1"]`).trigger('render'); 
+      } catch (e) {
+        console.error(e);
+        $('#loader').text('エラーが発生しました。再読み込みしてください。');
+      }
     }
 
-    $(window).on('load', buildFlipbook);
+    function hapticCheck() {
+      return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    }
 
-    let timer;
-    $(window).on('resize', () => {
-      clearTimeout(timer);
-      timer = setTimeout(buildFlipbook, 300);
-    });
+    $(window).on('load', () => setTimeout(buildFlipbook, 100));
   </script>
 </body>
 </html>
